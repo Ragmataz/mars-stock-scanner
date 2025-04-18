@@ -1,89 +1,86 @@
+### ✅ scanner/scanner.py
+
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
+import io
+import base64
 import logging
-from datetime import datetime
+
+from scanner.fetch_data import get_data, get_nse500_list, get_index_symbol
 from scanner.mars_calculator import calculate_mars
-from scanner.fetch_data import get_nse500_list, get_data
 from scanner.telegram_bot import send_telegram_message
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def generate_plot(data, symbol):
-    plt.figure(figsize=(10, 4))
-    plt.plot(data['Close'], label='Close Price', color='black')
+def generate_chart(data, symbol):
+    plt.figure(figsize=(10, 5))
+    plt.plot(data['Close'], label='Close', color='black')
     plt.plot(data['MARS'], label='MARS', color='orange')
-    plt.axhline(0, color='gray', linestyle='--')
+    plt.axhline(0, linestyle='--', color='gray')
 
-    last_mars = data['MARS'].iloc[-1]
-    last_close = data['Close'].iloc[-1]
+    # Buy signals
+    buy_signals = (data['MARS'] > 0) & (data['MARS'].shift(1) <= 0)
+    sell_signals = (data['MARS'] < 0) & (data['MARS'].shift(1) >= 0)
 
-    # Mark the latest point
-    if last_mars > last_close:
-        plt.scatter(data.index[-1], last_mars, color='green', s=100, label='Buy 🚀')
-    elif last_mars < last_close:
-        plt.scatter(data.index[-1], last_mars, color='red', s=100, label='Sell 🚨')
+    plt.plot(data[buy_signals].index, data[buy_signals]['Close'], '^', color='green', label='BUY ✅')
+    plt.plot(data[sell_signals].index, data[sell_signals]['Close'], 'v', color='red', label='SELL 🚨')
 
-    plt.title(f'{symbol} MARS Signal')
+    plt.title(f"{symbol} - MARS Indicator")
     plt.legend()
     plt.tight_layout()
 
-    filename = f"{symbol}_chart.png"
-    plt.savefig(filename)
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
     plt.close()
-    return filename
+    buf.seek(0)
+    image_bytes = base64.b64encode(buf.read()).decode('utf-8')
+    return image_bytes
 
-def process_stock(symbol):
-    try:
-        data = get_data(symbol, index_symbol)
-        if data is None or data.empty:
-            logger.warning(f"No data for {symbol}")
-            return
+def run():
+    symbols = get_nse500_list()
+    index_symbol = get_index_symbol()
 
-        data = calculate_mars(data)
-        data = data.dropna(subset=['MARS'])
+    mars_buy = []
+    mars_sell = []
 
-        if data.empty:
-            logger.warning(f"No MARS data for {symbol}")
-            return
-
-        last_mars = data['MARS'].iloc[-1]
-        last_close = data['Close'].iloc[-1]
-
-        if pd.notna(last_mars) and pd.notna(last_close):
-            if 0 < last_mars < 2:
-                message = f"✅ MARS BUY SIGNAL for {symbol} on {datetime.now().strftime('%Y-%m-%d')}"
-                plot_path = generate_plot(data, symbol)
-                send_telegram_message(message, plot_path)
-            elif -2 < last_mars < 0:
-                message = f"🚨 MARS SELL SIGNAL for {symbol} on {datetime.now().strftime('%Y-%m-%d')}"
-                plot_path = generate_plot(data, symbol)
-                send_telegram_message(message, plot_path)
-            else:
-                logger.info(f"No MARS crossover signal for {symbol}")
-        else:
-            logger.warning(f"Skipping {symbol} due to NaN values in MARS or Close")
-
-    except Exception as e:
-        logger.error(f"Error processing {symbol}: {e}")
-
-def main():
-    stock_list = get_nse500_list()
-    signals_found = False
-
-    for symbol in stock_list:
+    for symbol in symbols:
         logger.info(f"Processing {symbol}")
-        old_signal_count = len(os.listdir("."))  # Check file count before
-        process_stock(symbol)
-        new_signal_count = len(os.listdir("."))  # Check after
+        try:
+            data = get_data(symbol, index_symbol)
+            if data is None or data.empty:
+                continue
 
-        if new_signal_count > old_signal_count:
-            signals_found = True
+            data = calculate_mars(data)
 
-    if not signals_found:
-        send_telegram_message("😴 No MARS signals today.")
+            # Extended signal range
+            latest_mars = data['MARS'].iloc[-1]
+
+            if 0 < latest_mars < 2:
+                chart = generate_chart(data, symbol)
+                mars_buy.append((symbol, chart))
+
+            elif -2 < latest_mars < 0:
+                chart = generate_chart(data, symbol)
+                mars_sell.append((symbol, chart))
+
+        except Exception as e:
+            logger.error(f"Error processing {symbol}: {e}")
+
+    if mars_buy or mars_sell:
+        message = "📈 *MARS Signals*\n\n"
+        if mars_buy:
+            message += "✅ *Buy Signals*:\n"
+            for symbol, chart in mars_buy:
+                send_telegram_message(f"✅ BUY Signal for *{symbol}*", chart)
+
+        if mars_sell:
+            message += "🚨 *Sell Signals*:\n"
+            for symbol, chart in mars_sell:
+                send_telegram_message(f"🚨 SELL Signal for *{symbol}*", chart)
+    else:
+        send_telegram_message("📭 No MARS signals today.")
 
 if __name__ == "__main__":
-    main()
+    run()
