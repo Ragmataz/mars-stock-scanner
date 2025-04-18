@@ -1,89 +1,90 @@
 import os
+import logging
+import yfinance as yf
 import matplotlib.pyplot as plt
 from datetime import datetime
-from scanner.fetch_data import get_data, get_nse500_list, get_index_symbol
-from scanner.mars_calculator import calculate_mars
-from scanner.telegram import send_telegram_message, send_telegram_photo
+import requests
 
-def detect_signals(mars_values):
-    if mars_values is None or mars_values.empty:
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Constants
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+PLOTS_DIR = "plots"
+
+# Ensure plots directory exists
+os.makedirs(PLOTS_DIR, exist_ok=True)
+
+def fetch_stock_data(symbol, period="6mo", interval="1d"):
+    try:
+        data = yf.download(symbol, period=period, interval=interval)
+        if data.empty:
+            logger.warning(f"No data found for {symbol}")
+            return None
+        return data
+    except Exception as e:
+        logger.error(f"Error fetching data for {symbol}: {e}")
         return None
 
-    latest_val = mars_values.iloc[-1]
-    prev_val = mars_values.iloc[-2]
+def calculate_mars(data):
+    try:
+        data['MARS'] = data['Close'].rolling(window=14).mean()  # Placeholder for actual MARS calculation
+        return data
+    except Exception as e:
+        logger.error(f"Error calculating MARS: {e}")
+        return data
 
-    if prev_val < 0 < latest_val or (0 <= latest_val <= 2):
-        return 'buy'
-    elif prev_val > 0 > latest_val or (-2 <= latest_val <= 0):
-        return 'sell'
-    return None
+def generate_plot(data, symbol):
+    try:
+        plt.figure(figsize=(10, 5))
+        plt.plot(data.index, data['Close'], label='Close Price')
+        plt.plot(data.index, data['MARS'], label='MARS', linestyle='--')
+        plt.title(f"{symbol} Price and MARS")
+        plt.xlabel("Date")
+        plt.ylabel("Price")
+        plt.legend()
+        plot_path = os.path.join(PLOTS_DIR, f"{symbol}_mars.png")
+        plt.savefig(plot_path)
+        plt.close()
+        return plot_path
+    except Exception as e:
+        logger.error(f"Error generating plot for {symbol}: {e}")
+        return None
 
-def plot_mars_chart(symbol, mars_values):
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(mars_values.index, mars_values.values, label="MARS", color="blue", linewidth=2)
-    ax.axhline(0, color="black", linestyle="--", linewidth=1)
+def send_telegram_message(message, image_path=None):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+        response = requests.post(url, data=data)
+        if image_path:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+            with open(image_path, 'rb') as photo:
+                files = {'photo': photo}
+                data = {"chat_id": TELEGRAM_CHAT_ID}
+                response = requests.post(url, files=files, data=data)
+        if response.status_code != 200:
+            logger.error(f"Telegram API error: {response.text}")
+    except Exception as e:
+        logger.error(f"Error sending message to Telegram: {e}")
 
-    # Add emoji markers
-    for i in range(1, len(mars_values)):
-        prev, curr = mars_values.iloc[i-1], mars_values.iloc[i]
-        if prev < 0 < curr:
-            ax.text(mars_values.index[i], curr + 1, '✅', fontsize=14, ha='center')
-        elif prev > 0 > curr:
-            ax.text(mars_values.index[i], curr - 1, '🚨', fontsize=14, ha='center')
-
-    ax.set_title(f"{symbol} - MARS")
-    ax.set_ylabel("MARS Value")
-    ax.grid(True)
-    plt.tight_layout()
-
-    chart_filename = f"{symbol.replace(':', '_')}_mars_chart.png"
-    plt.savefig(chart_filename)
-    plt.close()
-    return chart_filename
-
-def run():
-    timeframe = "1d"
-    nse500_symbols = get_nse500_list()
-    index_symbol = get_index_symbol()
-
-    buy_signals, sell_signals = [], []
-
-    for symbol in nse500_symbols:
-        try:
-            df_stock = get_data(symbol, timeframe)
-            df_index = get_data(index_symbol, timeframe)
-
-            if df_stock is None or df_index is None:
-                continue
-
-            mars_values = calculate_mars(df_stock, df_index)
-            signal = detect_signals(mars_values)
-
-            if signal == 'buy':
-                buy_signals.append(symbol)
-            elif signal == 'sell':
-                sell_signals.append(symbol)
-
-                # Send chart for each signal (optional)
-            if signal:
-                chart_path = plot_mars_chart(symbol, mars_values)
-                caption = f"*{symbol}* triggered a *{signal.upper()}* signal {'✅' if signal == 'buy' else '🚨'}"
-                send_telegram_photo(chart_path, caption=caption)
-                os.remove(chart_path)  # Clean up
-
-        except Exception as e:
-            print(f"Error processing {symbol}: {e}")
+def main():
+    symbols = ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS"]
+    for symbol in symbols:
+        data = fetch_stock_data(symbol)
+        if data is None:
             continue
-
-    if buy_signals or sell_signals:
-        message = "*📈 MARS Signal Report*\n"
-        if buy_signals:
-            message += f"\n✅ *Buy Signals*:\n" + "\n".join(buy_signals)
-        if sell_signals:
-            message += f"\n\n🚨 *Sell Signals*:\n" + "\n".join(sell_signals)
-        send_telegram_message(message)
-    else:
-        send_telegram_message("No MARS signals today 😴")
+        data = calculate_mars(data)
+        if data is None or 'MARS' not in data.columns:
+            continue
+        # Example signal condition: MARS crosses above Close price
+        if data['MARS'].iloc[-1] > data['Close'].iloc[-1]:
+            message = f"📈 Buy Signal for {symbol} on {datetime.now().strftime('%Y-%m-%d')}"
+            plot_path = generate_plot(data, symbol)
+            send_telegram_message(message, plot_path)
+        else:
+            logger.info(f"No signal for {symbol}")
 
 if __name__ == "__main__":
-    run()
+    main()
