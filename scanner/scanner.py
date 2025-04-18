@@ -44,7 +44,7 @@ def plot_mars_chart(symbol, mars_values):
 def run():
     timeframe = "1d"
     nse500_symbols = get_nse500_list()
-    index_symbol = get_index_symbol("CNX500")
+    index_symbol = get_index_symbol()
 
     buy_signals, sell_signals = [], []
 
