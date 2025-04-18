@@ -1,39 +1,39 @@
 import yfinance as yf
-import pandas as pd
 import logging
 
-log = logging.getLogger()
+def get_data(symbol: str, timeframe: str, index_symbol: str = None):
+    """
+    Fetches historical data for the given symbol and timeframe using yfinance.
 
-def get_data(symbol: str, interval: str) -> pd.DataFrame | None:
-    interval_map = {
-        "Daily": ("6mo", "1d"),
-        "Weekly": ("1y", "1wk"),
-        "Monthly": ("2y", "1mo")
-    }
+    Args:
+        symbol (str): Stock symbol (e.g., 'RELIANCE.NS').
+        timeframe (str): One of ['Daily', 'Weekly', 'Monthly'].
+        index_symbol (str, optional): Not used currently, placeholder for index comparison logic.
 
-    if interval not in interval_map:
-        log.error(f"Unknown interval: {interval}")
-        return None
-
-    period, yf_interval = interval_map[interval]
-
+    Returns:
+        DataFrame: Historical OHLCV data or None if fetching fails.
+    """
     try:
-        df = yf.download(
-            symbol,
-            period=period,
-            interval=yf_interval,
-            progress=False,
-            auto_adjust=False,
-            threads=False,
-        )
+        interval_map = {
+            "Daily": "1d",
+            "Weekly": "1wk",
+            "Monthly": "1mo"
+        }
 
-        if df.empty or "Close" not in df.columns:
-            log.error(f"No data returned for {symbol} [{interval}]")
-            return None
+        interval = interval_map.get(timeframe)
+        if not interval:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
 
+        df = yf.download(symbol, period="6mo", interval=interval, auto_adjust=True, progress=False)
+        
+        if df.empty:
+            raise ValueError("No data returned")
+
+        df.reset_index(inplace=True)
         df.dropna(inplace=True)
+
         return df
 
     except Exception as e:
-        log.error(f"Exception fetching data for {symbol} [{interval}]: {e}")
+        logging.error(f"Error fetching data for {symbol} [{timeframe}]: {e}")
         return None
