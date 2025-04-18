@@ -1,70 +1,87 @@
-# scanner/scanner.py
-import os
-import io
 import logging
 import yfinance as yf
+import pandas as pd
 import matplotlib.pyplot as plt
-import base64
-from scanner.fetch_data import get_data, get_index_symbol
-from scanner.mars_calculator import calculate_mars
-from scanner.telegram_bot import send_telegram_message_with_image
+from datetime import datetime, timedelta
+import os
+
+from scanner.telegram_bot import send_telegram_message, send_telegram_message_with_image
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def plot_mars_chart(data, stock):
-    plt.figure(figsize=(10, 5))
-    plt.plot(data.index, data['MARS'], label='MARS', color='blue')
-    plt.plot(data.index, data['Close'], label='Close Price', color='black')
-    plt.axhline(0, linestyle='--', color='grey')
+# Define your list of symbols
+SYMBOLS = [
+    "RELIANCE.NS",
+    "TCS.NS",
+    "INFY.NS",
+    "HDFCBANK.NS",
+    "ICICIBANK.NS"
+]
 
-    # Add emojis for crossover signals
-    for i in range(1, len(data)):
-        if data['MARS'].iloc[i-1] < 0 and data['MARS'].iloc[i] > 0:
-            plt.plot(data.index[i], data['MARS'].iloc[i], 'g^', markersize=12, label='Buy ✅')
-        elif data['MARS'].iloc[i-1] > 0 and data['MARS'].iloc[i] < 0:
-            plt.plot(data.index[i], data['MARS'].iloc[i], 'rv', markersize=12, label='Sell 🚨')
+def calculate_mars(data):
+    try:
+        data['EMA_5'] = data['Close'].ewm(span=5, adjust=False).mean()
+        data['EMA_20'] = data['Close'].ewm(span=20, adjust=False).mean()
+        data['MARS'] = data['EMA_5'] - data['EMA_20']
+        return data
+    except Exception as e:
+        logger.error(f"Error in MARS calculation: {e}")
+        return None
 
-    plt.title(f"MARS Signal for {stock}")
-    plt.legend()
-    plt.tight_layout()
+def plot_stock_chart(data, symbol):
+    try:
+        plt.figure(figsize=(10, 5))
+        plt.plot(data['Close'], label='Close Price', color='black')
+        plt.plot(data['EMA_5'], label='EMA 5', linestyle='--', color='blue')
+        plt.plot(data['EMA_20'], label='EMA 20', linestyle='--', color='orange')
+        plt.title(f'{symbol} Price Chart with MARS')
+        plt.xlabel('Date')
+        plt.ylabel('Price')
+        plt.legend()
+        chart_filename = f"{symbol.replace('.', '_')}_chart.png"
+        plt.savefig(chart_filename)
+        plt.close()
+        return chart_filename
+    except Exception as e:
+        logger.error(f"Error generating chart for {symbol}: {e}")
+        return None
 
-    buffer = io.BytesIO()
-    plt.savefig(buffer, format='png')
-    plt.close()
-    buffer.seek(0)
-    return buffer
+def analyze_symbol(symbol):
+    try:
+        logger.info(f"Processing {symbol}")
+        end = datetime.today()
+        start = end - timedelta(days=180)
+        df = yf.download(symbol, start=start, end=end, auto_adjust=True)
+
+        if df is None or df.empty:
+            raise ValueError("Downloaded data is empty or None")
+
+        df = calculate_mars(df)
+
+        if df is None or df.empty:
+            raise ValueError("Failed to calculate MARS")
+
+        if df['MARS'].iloc[-1] > 0 and df['MARS'].iloc[-2] <= 0:
+            logger.info(f"MARS signal detected for {symbol}")
+            chart_path = plot_stock_chart(df, symbol)
+            if chart_path:
+                send_telegram_message_with_image(f"MARS signal detected for {symbol}", chart_path)
+            return True
+
+    except Exception as e:
+        logger.error(f"Error processing {symbol}: {e}")
+
+    return False
 
 def run():
-    index_symbol = get_index_symbol()
-    stocks = index_symbol[:20]  # Take top 20 for speed
+    signals_found = False
 
-    mars_buy = []
-    mars_sell = []
+    for symbol in SYMBOLS:
+        if analyze_symbol(symbol):
+            signals_found = True
 
-    for stock in stocks:
-        logger.info(f"Processing {stock}")
-        try:
-            data = get_data(stock, index_symbol)
-            data = calculate_mars(data)
-
-            latest_mars = data['MARS'].iloc[-1]
-            previous_mars = data['MARS'].iloc[-2]
-
-            if previous_mars < 0 < latest_mars or 0 <= latest_mars <= 2:
-                mars_buy.append(stock)
-                chart = plot_mars_chart(data, stock)
-                send_telegram_message_with_image(f"MARS BUY Signal ✅ for {stock}", chart)
-
-            elif previous_mars > 0 > latest_mars or -2 <= latest_mars <= 0:
-                mars_sell.append(stock)
-                chart = plot_mars_chart(data, stock)
-                send_telegram_message_with_image(f"MARS SELL Signal 🚨 for {stock}", chart)
-
-        except Exception as e:
-            logger.error(f"Error processing {stock}: {e}")
-
-    if not mars_buy and not mars_sell:
+    if not signals_found:
         send_telegram_message("🛰️ No MARS signals detected today.")
 
 if __name__ == "__main__":
