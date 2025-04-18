@@ -61,13 +61,35 @@ def analyze_symbol(symbol, tf_name, interval, period):
 
 def run():
     signals_found = False
-    for symbol in SYMBOLS:
-        for tf_name, tf_params in TIMEFRAMES.items():
-            if analyze_symbol(symbol, tf_name, tf_params["interval"], tf_params["period"]):
-                signals_found = True
+    for symbol in symbols:
+    for label, interval in timeframes.items():
+        logger.info(f"Processing {symbol} [{label}]")
+        try:
+            data = get_data(symbol, index_symbol, interval)
+            if data is None or data.empty or 'Close' not in data.columns:
+                logger.error(f"Error processing {symbol} [{label}]: No valid data")
+                continue
 
-    if not signals_found:
-        send_telegram_message_with_image("🍼 No MARS signals on any timeframe today. Baby can nap. 😴")
+            data = calculate_mars(data)
+            if data['MARS'].iloc[-1] > data['Close'].iloc[-1]:
+                # generate chart and send image
+                image_path = f"{symbol}_{label}.png"
+                plot_mars_chart(data, symbol, label, image_path)
+                signal = f"📉 SELL signal for {symbol} on {label}"
+                send_telegram_message_with_image(signal, image_path)
+                signals_found = True
+            elif data['MARS'].iloc[-1] < data['Close'].iloc[-1]:
+                image_path = f"{symbol}_{label}.png"
+                plot_mars_chart(data, symbol, label, image_path)
+                signal = f"✅ BUY signal for {symbol} on {label}"
+                send_telegram_message_with_image(signal, image_path)
+                signals_found = True
+        except Exception as e:
+            logger.error(f"Error processing {symbol} [{label}]: {e}")
+
+if not signals_found:
+    send_telegram_message("🍼 No MARS signals on any timeframe today. Baby can nap. 😴")
+
 
 
 if __name__ == "__main__":
