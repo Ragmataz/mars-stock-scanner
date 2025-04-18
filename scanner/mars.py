@@ -1,22 +1,12 @@
-# scanner/mars.py
+def calculate_mars_signal(data_dict):
+    results = []
+    for symbol, df in data_dict.items():
+        if len(df) < 50:
+            continue
+        df['SMA_10'] = df['Close'].rolling(window=10).mean()
+        df['SMA_30'] = df['Close'].rolling(window=30).mean()
 
-import pandas as pd
+        if df['SMA_10'].iloc[-1] > df['SMA_30'].iloc[-1] and df['SMA_10'].iloc[-2] <= df['SMA_30'].iloc[-2]:
+            results.append(f"{symbol} - MARS crossover detected")
 
-def moving_average(series, length, ma_type="SMA"):
-    if ma_type == "EMA":
-        return series.ewm(span=length).mean()
-    elif ma_type == "WMA":
-        weights = range(1, length + 1)
-        return series.rolling(length).apply(lambda prices: sum(prices * weights)/sum(weights), raw=True)
-    else:
-        return series.rolling(length).mean()
-
-def compute_mars(stock_df, index_df, ma_type="SMA", ma_len=50):
-    ma_stock = moving_average(stock_df["Close"], ma_len, ma_type)
-    ma_index = moving_average(index_df["Close"], ma_len, ma_type)
-
-    symbol_percent = (stock_df["Close"] - ma_stock) / ma_stock * 100
-    index_percent = (index_df["Close"] - ma_index) / ma_index * 100
-
-    val = symbol_percent - index_percent
-    return val
+    return results
