@@ -1,86 +1,71 @@
-### ✅ scanner/scanner.py
-
-import yfinance as yf
-import pandas as pd
-import matplotlib.pyplot as plt
+# scanner/scanner.py
+import os
 import io
-import base64
 import logging
-
-from scanner.fetch_data import get_data, get_nse500_list, get_index_symbol
+import yfinance as yf
+import matplotlib.pyplot as plt
+import base64
+from scanner.fetch_data import get_data, get_index_symbol
 from scanner.mars_calculator import calculate_mars
-from scanner.telegram_bot import send_telegram_message
+from scanner.telegram_bot import send_telegram_message_with_image
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def generate_chart(data, symbol):
+def plot_mars_chart(data, stock):
     plt.figure(figsize=(10, 5))
-    plt.plot(data['Close'], label='Close', color='black')
-    plt.plot(data['MARS'], label='MARS', color='orange')
-    plt.axhline(0, linestyle='--', color='gray')
+    plt.plot(data.index, data['MARS'], label='MARS', color='blue')
+    plt.plot(data.index, data['Close'], label='Close Price', color='black')
+    plt.axhline(0, linestyle='--', color='grey')
 
-    # Buy signals
-    buy_signals = (data['MARS'] > 0) & (data['MARS'].shift(1) <= 0)
-    sell_signals = (data['MARS'] < 0) & (data['MARS'].shift(1) >= 0)
+    # Add emojis for crossover signals
+    for i in range(1, len(data)):
+        if data['MARS'].iloc[i-1] < 0 and data['MARS'].iloc[i] > 0:
+            plt.plot(data.index[i], data['MARS'].iloc[i], 'g^', markersize=12, label='Buy ✅')
+        elif data['MARS'].iloc[i-1] > 0 and data['MARS'].iloc[i] < 0:
+            plt.plot(data.index[i], data['MARS'].iloc[i], 'rv', markersize=12, label='Sell 🚨')
 
-    plt.plot(data[buy_signals].index, data[buy_signals]['Close'], '^', color='green', label='BUY ✅')
-    plt.plot(data[sell_signals].index, data[sell_signals]['Close'], 'v', color='red', label='SELL 🚨')
-
-    plt.title(f"{symbol} - MARS Indicator")
+    plt.title(f"MARS Signal for {stock}")
     plt.legend()
     plt.tight_layout()
 
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png')
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format='png')
     plt.close()
-    buf.seek(0)
-    image_bytes = base64.b64encode(buf.read()).decode('utf-8')
-    return image_bytes
+    buffer.seek(0)
+    return buffer
 
 def run():
-    symbols = get_nse500_list()
     index_symbol = get_index_symbol()
+    stocks = index_symbol[:20]  # Take top 20 for speed
 
     mars_buy = []
     mars_sell = []
 
-    for symbol in symbols:
-        logger.info(f"Processing {symbol}")
+    for stock in stocks:
+        logger.info(f"Processing {stock}")
         try:
-            data = get_data(symbol, index_symbol)
-            if data is None or data.empty:
-                continue
-
+            data = get_data(stock, index_symbol)
             data = calculate_mars(data)
 
-            # Extended signal range
             latest_mars = data['MARS'].iloc[-1]
+            previous_mars = data['MARS'].iloc[-2]
 
-            if 0 < latest_mars < 2:
-                chart = generate_chart(data, symbol)
-                mars_buy.append((symbol, chart))
+            if previous_mars < 0 < latest_mars or 0 <= latest_mars <= 2:
+                mars_buy.append(stock)
+                chart = plot_mars_chart(data, stock)
+                send_telegram_message_with_image(f"MARS BUY Signal ✅ for {stock}", chart)
 
-            elif -2 < latest_mars < 0:
-                chart = generate_chart(data, symbol)
-                mars_sell.append((symbol, chart))
+            elif previous_mars > 0 > latest_mars or -2 <= latest_mars <= 0:
+                mars_sell.append(stock)
+                chart = plot_mars_chart(data, stock)
+                send_telegram_message_with_image(f"MARS SELL Signal 🚨 for {stock}", chart)
 
         except Exception as e:
-            logger.error(f"Error processing {symbol}: {e}")
+            logger.error(f"Error processing {stock}: {e}")
 
-    if mars_buy or mars_sell:
-        message = "📈 *MARS Signals*\n\n"
-        if mars_buy:
-            message += "✅ *Buy Signals*:\n"
-            for symbol, chart in mars_buy:
-                send_telegram_message(f"✅ BUY Signal for *{symbol}*", chart)
-
-        if mars_sell:
-            message += "🚨 *Sell Signals*:\n"
-            for symbol, chart in mars_sell:
-                send_telegram_message(f"🚨 SELL Signal for *{symbol}*", chart)
-    else:
-        send_telegram_message("📭 No MARS signals today.")
+    if not mars_buy and not mars_sell:
+        send_telegram_message_with_image("🛰️ No MARS signals detected today.")
 
 if __name__ == "__main__":
     run()
