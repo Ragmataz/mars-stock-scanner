@@ -1,20 +1,20 @@
-import matplotlib.pyplot as plt
+def plot_stock_chart(df, symbol, timeframe="Daily"):
+    import matplotlib.pyplot as plt
+    import os
 
-def plot_mars_chart(dates, mars_values, signals, title="MARS Chart"):
-    plt.figure(figsize=(12, 6))
-    plt.plot(dates, mars_values, label="MARS", color="blue")
-    plt.axhline(0, color='gray', linestyle='--')
-
-    for i, signal in enumerate(signals):
-        if signal == "BUY":
-            plt.text(dates[i], mars_values[i], "✅", fontsize=12, ha='center')
-        elif signal == "SELL":
-            plt.text(dates[i], mars_values[i], "🚨", fontsize=12, ha='center')
-
-    plt.title(title)
-    plt.xlabel("Date")
-    plt.ylabel("MARS Value")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+    try:
+        plt.figure(figsize=(10, 5))
+        plt.plot(df['Close'], label='Close Price', linewidth=2)
+        plt.plot(df['MARS'], label='MARS', linestyle='--')
+        plt.title(f"{symbol} - {timeframe}")
+        plt.xlabel('Date')
+        plt.ylabel('Price')
+        plt.legend()
+        filename = f"{symbol.replace('.NS','')}_{timeframe}.png"
+        filepath = os.path.join("/tmp", filename)
+        plt.savefig(filepath)
+        plt.close()
+        return filepath
+    except Exception as e:
+        print(f"Error plotting chart: {e}")
+        return None
