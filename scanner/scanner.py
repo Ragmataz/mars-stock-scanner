@@ -1,90 +1,89 @@
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
 import os
 import logging
-import yfinance as yf
-import matplotlib.pyplot as plt
 from datetime import datetime
-import requests
+from scanner.mars_calculator import calculate_mars
+from scanner.fetch_data import get_nse500_list, get_data
+from scanner.telegram_bot import send_telegram_message
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Constants
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-PLOTS_DIR = "plots"
-
-# Ensure plots directory exists
-os.makedirs(PLOTS_DIR, exist_ok=True)
-
-def fetch_stock_data(symbol, period="6mo", interval="1d"):
-    try:
-        data = yf.download(symbol, period=period, interval=interval)
-        if data.empty:
-            logger.warning(f"No data found for {symbol}")
-            return None
-        return data
-    except Exception as e:
-        logger.error(f"Error fetching data for {symbol}: {e}")
-        return None
-
-def calculate_mars(data):
-    try:
-        data['MARS'] = data['Close'].rolling(window=14).mean()  # Placeholder for actual MARS calculation
-        return data
-    except Exception as e:
-        logger.error(f"Error calculating MARS: {e}")
-        return data
-
 def generate_plot(data, symbol):
-    try:
-        plt.figure(figsize=(10, 5))
-        plt.plot(data.index, data['Close'], label='Close Price')
-        plt.plot(data.index, data['MARS'], label='MARS', linestyle='--')
-        plt.title(f"{symbol} Price and MARS")
-        plt.xlabel("Date")
-        plt.ylabel("Price")
-        plt.legend()
-        plot_path = os.path.join(PLOTS_DIR, f"{symbol}_mars.png")
-        plt.savefig(plot_path)
-        plt.close()
-        return plot_path
-    except Exception as e:
-        logger.error(f"Error generating plot for {symbol}: {e}")
-        return None
+    plt.figure(figsize=(10, 4))
+    plt.plot(data['Close'], label='Close Price', color='black')
+    plt.plot(data['MARS'], label='MARS', color='orange')
+    plt.axhline(0, color='gray', linestyle='--')
 
-def send_telegram_message(message, image_path=None):
+    last_mars = data['MARS'].iloc[-1]
+    last_close = data['Close'].iloc[-1]
+
+    # Mark the latest point
+    if last_mars > last_close:
+        plt.scatter(data.index[-1], last_mars, color='green', s=100, label='Buy 🚀')
+    elif last_mars < last_close:
+        plt.scatter(data.index[-1], last_mars, color='red', s=100, label='Sell 🚨')
+
+    plt.title(f'{symbol} MARS Signal')
+    plt.legend()
+    plt.tight_layout()
+
+    filename = f"{symbol}_chart.png"
+    plt.savefig(filename)
+    plt.close()
+    return filename
+
+def process_stock(symbol):
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
-        response = requests.post(url, data=data)
-        if image_path:
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-            with open(image_path, 'rb') as photo:
-                files = {'photo': photo}
-                data = {"chat_id": TELEGRAM_CHAT_ID}
-                response = requests.post(url, files=files, data=data)
-        if response.status_code != 200:
-            logger.error(f"Telegram API error: {response.text}")
+        data = get_data(symbol)
+        if data is None or data.empty:
+            logger.warning(f"No data for {symbol}")
+            return
+
+        data = calculate_mars(data)
+        data = data.dropna(subset=['MARS'])
+
+        if data.empty:
+            logger.warning(f"No MARS data for {symbol}")
+            return
+
+        last_mars = data['MARS'].iloc[-1]
+        last_close = data['Close'].iloc[-1]
+
+        if pd.notna(last_mars) and pd.notna(last_close):
+            if 0 < last_mars < 2:
+                message = f"✅ MARS BUY SIGNAL for {symbol} on {datetime.now().strftime('%Y-%m-%d')}"
+                plot_path = generate_plot(data, symbol)
+                send_telegram_message(message, plot_path)
+            elif -2 < last_mars < 0:
+                message = f"🚨 MARS SELL SIGNAL for {symbol} on {datetime.now().strftime('%Y-%m-%d')}"
+                plot_path = generate_plot(data, symbol)
+                send_telegram_message(message, plot_path)
+            else:
+                logger.info(f"No MARS crossover signal for {symbol}")
+        else:
+            logger.warning(f"Skipping {symbol} due to NaN values in MARS or Close")
+
     except Exception as e:
-        logger.error(f"Error sending message to Telegram: {e}")
+        logger.error(f"Error processing {symbol}: {e}")
 
 def main():
-    symbols = ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS"]
-    for symbol in symbols:
-        data = fetch_stock_data(symbol)
-        if data is None:
-            continue
-        data = calculate_mars(data)
-        if data is None or 'MARS' not in data.columns:
-            continue
-        # Example signal condition: MARS crosses above Close price
-        if data['MARS'].iloc[-1] > data['Close'].iloc[-1]:
-            message = f"📈 Buy Signal for {symbol} on {datetime.now().strftime('%Y-%m-%d')}"
-            plot_path = generate_plot(data, symbol)
-            send_telegram_message(message, plot_path)
-        else:
-            logger.info(f"No signal for {symbol}")
+    stock_list = get_nse500_list()
+    signals_found = False
+
+    for symbol in stock_list:
+        logger.info(f"Processing {symbol}")
+        old_signal_count = len(os.listdir("."))  # Check file count before
+        process_stock(symbol)
+        new_signal_count = len(os.listdir("."))  # Check after
+
+        if new_signal_count > old_signal_count:
+            signals_found = True
+
+    if not signals_found:
+        send_telegram_message("😴 No MARS signals today.")
 
 if __name__ == "__main__":
     main()
