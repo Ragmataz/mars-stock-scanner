@@ -1,10 +1,10 @@
 import pandas as pd
 
-def calculate_mars(df: pd.DataFrame) -> pd.Series:
-    """
-    Calculates MARS = (Stock % change - Index % change) over the last 14 periods.
-    """
-    stock_returns = df['Close'].pct_change(14) * 100
-    index_returns = df['Index_Close'].pct_change(14) * 100
-    mars = stock_returns - index_returns
-    return mars
+def calculate_mars(data):
+    try:
+        # Sample MARS logic: simplified momentum
+        data["MARS"] = data["Close"].pct_change(periods=3).rolling(window=3).mean() * 100
+        return data
+    except Exception as e:
+        print(f"Error in MARS calculation: {e}")
+        return data
