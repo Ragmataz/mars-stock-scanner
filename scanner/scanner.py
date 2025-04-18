@@ -65,7 +65,7 @@ def run():
             logger.error(f"Error processing {stock}: {e}")
 
     if not mars_buy and not mars_sell:
-        send_telegram_message_with_image("🛰️ No MARS signals detected today.")
+        send_telegram_message("🛰️ No MARS signals detected today.")
 
 if __name__ == "__main__":
     run()
