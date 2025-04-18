@@ -31,7 +31,7 @@ def run():
         for label, interval in TIMEFRAMES.items():
             logging.info(f"Processing {symbol} [{label}]")
             try:
-                data = get_data(symbol, None, interval)
+                data = get_data(symbol, label, interval)
                 if data is None:
                     raise ValueError("No data returned")
                 signal, enriched = calculate_mars(data)
