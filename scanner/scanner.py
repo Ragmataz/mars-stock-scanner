@@ -37,7 +37,7 @@ def generate_plot(data, symbol):
 
 def process_stock(symbol):
     try:
-        data = get_data(symbol)
+        data = get_data(symbol, index_symbol)
         if data is None or data.empty:
             logger.warning(f"No data for {symbol}")
             return
