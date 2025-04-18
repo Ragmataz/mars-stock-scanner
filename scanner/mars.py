@@ -1,4 +1,4 @@
-def calculate_mars_signal(data_dict):
+def calculate_mars(data_dict):
     results = []
     for symbol, df in data_dict.items():
         if len(df) < 50:
