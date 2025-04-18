@@ -1,20 +1,21 @@
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
-from scanner.config import NSE_500_TICKERS, INDEX_TICKER
 
 def get_nse500_list():
-    return NSE_500_TICKERS
+    return ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS"]  # Sample list
 
 def get_index_symbol():
-    return INDEX_TICKER
+    return "^NSEI"
 
-def get_data(stock_list, index_symbol):
-    end = datetime.now()
-    start = end - timedelta(days=365)
+def get_data(symbol, index_symbol):
+    try:
+        data = yf.download(symbol, period="6mo", interval="1d", progress=False)
+        if data.empty:
+            return None
 
-    all_data = {}
-    for symbol in stock_list + [index_symbol]:
-        df = yf.download(symbol + ".NS", start=start, end=end, progress=False)
-        all_data[symbol] = df
-    return all_data
+        data["Symbol"] = symbol
+        data.dropna(inplace=True)
+        return data
+    except Exception as e:
+        print(f"Error fetching data for {symbol}: {e}")
+        return None
