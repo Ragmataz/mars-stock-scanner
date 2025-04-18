@@ -1,12 +1,16 @@
-def calculate_mars(data_dict):
-    results = []
-    for symbol, df in data_dict.items():
-        if len(df) < 50:
-            continue
-        df['SMA_10'] = df['Close'].rolling(window=10).mean()
-        df['SMA_30'] = df['Close'].rolling(window=30).mean()
+def calculate_mars(data):
+    try:
+        data['EMA5'] = data['Close'].ewm(span=5, adjust=False).mean()
+        data['EMA20'] = data['Close'].ewm(span=20, adjust=False).mean()
+        data['MARS'] = data['EMA5'] - data['EMA20']
 
-        if df['SMA_10'].iloc[-1] > df['SMA_30'].iloc[-1] and df['SMA_10'].iloc[-2] <= df['SMA_30'].iloc[-2]:
-            results.append(f"{symbol} - MARS crossover detected")
+        signal = None
+        if data['MARS'].iloc[-2] < 0 and data['MARS'].iloc[-1] > 0:
+            signal = 'BUY'
+        elif data['MARS'].iloc[-2] > 0 and data['MARS'].iloc[-1] < 0:
+            signal = 'SELL'
 
-    return results
+        return signal, data
+    except Exception as e:
+        print("Error in MARS calculation:", e)
+        return None, data
