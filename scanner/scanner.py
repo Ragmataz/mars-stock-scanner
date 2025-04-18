@@ -1,17 +1,18 @@
-from scanner.fetch_data import get_data, get_nse500_list, get_index_symbol
-from scanner.mars import calculate_mars_signal
-from scanner.telegram import send_telegram_message
+def detect_mars_signal(mars_values):
+    signals = []
+    for i in range(1, len(mars_values)):
+        prev = mars_values[i - 1]
+        curr = mars_values[i]
 
-def main():
-    stock_list = get_nse500_list()
-    index_symbol = get_index_symbol()
-    data = get_data(stock_list, index_symbol)
+        # ✅ BUY signal: crossing from below 0 into the range 0 to +2
+        if prev < 0 and 0 <= curr <= 2:
+            signals.append("BUY")
 
-    results = calculate_mars_signal(data)
-    if results:
-        send_telegram_message(results)
-    else:
-        print("No signals today.")
+        # 🚨 SELL signal: crossing from above 0 into the range 0 to -2
+        elif prev > 0 and -2 <= curr <= 0:
+            signals.append("SELL")
 
-if __name__ == "__main__":
-    main()
+        else:
+            signals.append("")
+    signals.insert(0, "")  # No signal for the very first data point
+    return signals
