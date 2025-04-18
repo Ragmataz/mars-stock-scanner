@@ -1,25 +1,38 @@
 import os
+import logging
 import requests
 
-def send_telegram_message(message):
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
-        print("Missing Telegram credentials")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+def send_telegram_message(message: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logging.warning("Telegram credentials not set.")
         return
 
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    data = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-    requests.post(url, data=data)
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, data=payload)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to send Telegram message: {e}")
 
-def send_chart_image(image_path, caption="📈 Chart"):
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
-        print("Missing Telegram credentials")
+def send_telegram_message_with_image(message: str, image_path: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logging.warning("Telegram credentials not set.")
         return
 
-    with open(image_path, "rb") as image_file:
-        files = {"photo": image_file}
-        data = {"chat_id": chat_id, "caption": caption}
-        requests.post(f"https://api.telegram.org/bot{token}/sendPhoto", data=data, files=files)
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+    try:
+        with open(image_path, "rb") as photo:
+            files = {"photo": photo}
+            data = {"chat_id": TELEGRAM_CHAT_ID, "caption": message}
+            response = requests.post(url, files=files, data=data)
+            response.raise_for_status()
+    except Exception as e:
+        logging.error(f"Failed to send image via Telegram: {e}")
