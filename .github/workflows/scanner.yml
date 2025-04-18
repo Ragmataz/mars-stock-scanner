@@ -1,0 +1,32 @@
+# .github/workflows/scanner.yml
+
+name: Run MARS Scanner
+
+on:
+  schedule:
+    - cron: "0 10 * * 1-5"  # Every weekday at 10 AM UTC (3:30 PM IST)
+  workflow_dispatch:
+
+jobs:
+  run-scan:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run scanner
+        run: |
+          python3 -m scanner.scanner
